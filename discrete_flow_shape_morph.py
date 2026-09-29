@@ -20,6 +20,8 @@ def _(mo):
     mo.md(r"""
     To run in molab: Select Server compute and GPU: RTX Pro 6000 Blackwell. Then run the notebook with the play button
 
+    For a better experience, prefer using appview (toggle button under save button)
+
     Otherwise pull the model locally from [github](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master)
 
     Feedback and potential PR very appreciated! 😎
