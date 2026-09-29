@@ -15,6 +15,18 @@ __generated_with = "0.25.0"
 app = marimo.App(width="medium")
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    To run in molab: Select Server compute and GPU: RTX Pro 6000 Blackwell. Then run the notebook with the play button
+
+    Otherwise pull the model locally from [github](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master)
+
+    Feedback and potential PR very appreciated! 😎
+    """)
+    return
+
+
 @app.cell(hide_code=True, expand_output=True)
 def header(
     COLOR_NAMES,
