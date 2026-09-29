@@ -22,7 +22,7 @@ def _(mo):
 
     For a better experience, prefer using appview (toggle button under save button)
 
-    Otherwise pull the model locally from [github](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master)
+    You pull the repo locally from [github](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master)
 
     Feedback and potential PR very appreciated! 😎
     """)
