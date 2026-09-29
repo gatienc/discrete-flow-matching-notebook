@@ -81,7 +81,7 @@ def header(
 
     This notebook was heavily inspired by Georges Le Bellier's [educational notebook](https://github.com/lebellig/discrete-fm/tree/master) on discrete flow matching.
 
-    If you don't care about the details, just scroll down and train your own model! It trains in a few seconds with 1k steps (the random coupling needs more steps for good results).
+    If you don't care about the details, just scroll down and train your own model! It trains in a few seconds with 1k steps on CPU (the random coupling needs more steps for good results).
 
     ## Dataset
     To get an understanding of discrete flow matching behaviour, we algorithmically generate a toy "dataset" of random non-overlapping items (squares/circles/triangles in red/blue/green) whose **shape and color** morph to the next ones along two independent cycles (represented here).
@@ -339,7 +339,8 @@ def wiring(
     trained_model = DiscreteFM(dict_size, copy.deepcopy(model_architecture), _coupling, _kappa).to(
         device
     )
-    _optimizer = torch.optim.Adam(trained_model.parameters(), lr=3e-3)
+    _batch_size = 32
+    _optimizer = torch.optim.Adam(trained_model.parameters(), lr=1e-3)
 
     _losses = []
     trained_model.train()
@@ -350,7 +351,7 @@ def wiring(
         show_rate=True,
         show_eta=True,
     ):
-        _x0, _x1 = sample_pair(8)
+        _x0, _x1 = sample_pair(_batch_size)
         _loss = trained_model.step((_x0.to(device), _x1.to(device)))
         _optimizer.zero_grad()
         _loss.backward()
@@ -447,10 +448,9 @@ def trajectory_controls(
         [
             mo.md(r"""
     ## Results
-    The trained model samples the example pair above. The trajectory slider scrubs through the recorded Euler states, and the error map shows wrong pixels in their target color. *Show model endpoint prediction p₁* replaces the state by the model prediction of $x_1$ at that time, and the soft view blends the palette by class probability.
     """),
             inference_step,
-            sample_iteration,
+            sample_iteration.callout(kind="info", title="Play with me!"),
             show_model_prediction,
             show_soft_map,
             randomize_button,
@@ -501,9 +501,7 @@ def figure(
     _readout = "flow start (coupling)" if _iteration == 0 else "multinomial proposal"
 
     if sample_has_target:
-        # error map in the same palette: white where correct, target tone where wrong
-        _error_rgb = to_rgb(torch.where(_argmax == shown_target, 0, shown_target))
-        _fig, _axes = plt.subplots(1, 4, figsize=(10.5, 2.8))
+        _fig, _axes = plt.subplots(1, 3, figsize=(8.4, 2.8))
         _panels = [
             (to_rgb(sample_start[0]), "flow start x₀ (coupling)"),
             (to_rgb(shown_target[0]), "target x₁"),
@@ -512,7 +510,6 @@ def figure(
                 f"{_display_origin} · t={_selected_time:.3f} · {_readout}"
                 + (" · soft view" if show_soft_map.value else " · hard classes"),
             ),
-            (_error_rgb[0], "error (target tone = wrong pixel)"),
         ]
         _title_suffix = f"accuracy {sample_accuracy:.3f} | "
     else:
@@ -1040,7 +1037,7 @@ def ui_controls(mo):
         value="Linear",
         label="Time interpolation κ",
     )
-    train_steps_choice = mo.ui.slider(start=2, stop=5, value=3, label="10^n training steps")
+    train_steps_choice = mo.ui.slider(start=1, stop=4, value=2, label="10^n training steps")
     return coupling_choice, kappa_choice, train_steps_choice
 
 
