@@ -18,7 +18,7 @@ app = marimo.App(width="medium")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    To run in molab: Select Server compute and GPU: RTX Pro 6000 Blackwell. Then run the notebook with the play button
+    Start by running the notebook with the play button (bottom right of the page in yellow)
 
     For a better experience, prefer using appview (toggle button under save button)
 
