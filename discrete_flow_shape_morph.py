@@ -19,6 +19,7 @@ app = marimo.App(width="medium")
 def _(mo):
     mo.md(r"""
     Start by running the notebook with the play button (bottom right of the page in yellow)
+    You can use the integrated gpu (cpu icon and select gpu) then save and restart to speed up training
 
     For a better experience, prefer using appview (toggle button under save button)
 
@@ -343,8 +344,8 @@ def wiring(
     trained_model = DiscreteFM(dict_size, copy.deepcopy(model_architecture), _coupling, _kappa).to(
         device
     )
-    _batch_size = 32
-    _optimizer = torch.optim.Adam(trained_model.parameters(), lr=1e-3)
+    _batch_size = 256
+    _optimizer = torch.optim.Adam(trained_model.parameters(), lr=3e-3)
 
     _losses = []
     trained_model.train()
@@ -895,39 +896,58 @@ def setup_utilities():
         s2 = _edge_sign(vertices[2], vertices[0], xx, yy)
         return ((s0 >= 0) & (s1 >= 0) & (s2 >= 0)) | ((s0 <= 0) & (s1 <= 0) & (s2 <= 0))
 
+    # every item mask, precomputed once: SHAPE_MASKS[shape, cy, cx] is a (SIZE, SIZE) bool mask
+    SHAPE_MASKS = torch.stack(
+        [
+            torch.stack(
+                [
+                    torch.stack([_shape_mask(s, cx, cy, RADIUS) for cx in range(SIZE)])
+                    for cy in range(SIZE)
+                ]
+            )
+            for s in range(len(SHAPE_NAMES))
+        ]
+    )
+
     def sample_pair(
-        batch_size: int,
-        max_items: int = 5,
-        size: int = SIZE,
-        radius: int = RADIUS,
-        n_cycle: int = 3,
+        batch_size: int, max_items: int = 5, n_cycle: int = 3
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Sample (x0, x1): random non-overlapping items, both rules applied in x1.
 
         Each item keeps its center but its shape is re-drawn morphed
         (square→circle→triangle) and its color attribute cycled (red→blue→green).
         ``n_cycle=2`` keeps only the first two of each (square↔circle, red↔blue).
+
+        Vectorized over the batch: each item slot draws 100 candidate centers and takes
+        the first one far enough from the items already placed (rejection sampling);
+        the item is skipped if none is.
         """
-        x0 = torch.zeros(batch_size, size, size, dtype=torch.long)
+        batch = torch.arange(batch_size)
+        n_items = torch.randint(2, max_items + 1, (batch_size,))
+        shapes = torch.randint(0, n_cycle, (batch_size, max_items))
+        colors = torch.randint(0, n_cycle, (batch_size, max_items))
+        min_dist = 2 * RADIUS + 2
+        # unplaced slots sit far away so they never block a candidate
+        centers = torch.full((batch_size, max_items, 2), -1e3)
+        x0 = torch.zeros(batch_size, SIZE, SIZE, dtype=torch.long)
         x1 = torch.zeros_like(x0)
-        min_dist = 2 * radius + 2
-        for b in range(batch_size):
-            n_items = int(torch.randint(2, max_items + 1, (1,)).item())
-            centers: list[tuple[float, float]] = []
-            for _ in range(n_items):
-                for _attempt in range(100):
-                    cx = float(torch.randint(radius + 1, size - radius, (1,)).item())
-                    cy = float(torch.randint(radius + 1, size - radius, (1,)).item())
-                    if all((cx - ox) ** 2 + (cy - oy) ** 2 >= min_dist**2 for ox, oy in centers):
-                        centers.append((cx, cy))
-                        break
-                else:
-                    continue  # could not place without overlap; skip this item
-                shape = int(torch.randint(0, n_cycle, (1,)).item())
-                color = int(torch.randint(0, n_cycle, (1,)).item())
-                x0[b][_shape_mask(shape, cx, cy, radius)] = 1 + color
-                new_shape, new_color = (shape + 1) % n_cycle, (color + 1) % n_cycle
-                x1[b][_shape_mask(new_shape, cx, cy, radius)] = 1 + new_color
+        for k in range(max_items):
+            candidates = torch.randint(RADIUS + 1, SIZE - RADIUS, (batch_size, 100, 2))
+            dist2 = (candidates[:, :, None].float() - centers[:, None, :k]).square().sum(-1)
+            valid = (dist2 >= min_dist**2).all(-1)
+            chosen = candidates[batch, valid.int().argmax(1)]
+            placed = valid.any(1) & (k < n_items)
+            centers[:, k] = torch.where(placed[:, None], chosen.float(), centers[:, k])
+
+            cx, cy = chosen[:, 0], chosen[:, 1]
+            shape, color = shapes[:, k], colors[:, k]
+            paint = placed[:, None, None]
+            x0 = torch.where(paint & SHAPE_MASKS[shape, cy, cx], (1 + color)[:, None, None], x0)
+            x1 = torch.where(
+                paint & SHAPE_MASKS[(shape + 1) % n_cycle, cy, cx],
+                (1 + (color + 1) % n_cycle)[:, None, None],
+                x1,
+            )
         return x0, x1
 
     def to_rgb(img: torch.Tensor) -> torch.Tensor:
