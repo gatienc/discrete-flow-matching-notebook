@@ -79,7 +79,7 @@ def header(
 
     This notebook was heavily inspired by Georges Le Bellier's [educational notebook](https://github.com/lebellig/discrete-fm/tree/master) on discrete flow matching.
 
-    If you don't care about the details, just scroll down and train your own model! It trains in less than a minute with 1k steps on CPU (the random coupling needs more steps for good results).
+    If you don't care about the details, just scroll down and train your own model! It trains in less than a minute with 1k steps on molab GPU (the random coupling needs more steps for good results).
 
     ## Dataset
     To get an understanding of discrete flow matching behaviour, we algorithmically generate a toy "dataset" of random non-overlapping items (squares/circles/triangles in red/blue/green) whose **shape and color** morph to the next ones along two independent cycles (represented here).
@@ -173,10 +173,16 @@ def jump_example(
     _t, _h = 0.5, 0.25
     _weight = _h / (1 - _t)
 
+    # inverse-CDF draw: the guess is the segment of the bar where the uniform draw lands
     _guess_generator = torch.Generator().manual_seed(2 * guess_resample_button.value)
-    _guess = list(_p1)[
-        torch.multinomial(torch.tensor(list(_p1.values())), 1, generator=_guess_generator).item()
-    ]
+    _draw = torch.rand((), generator=_guess_generator).item()
+    _segment_start = 0.0
+    for _guess, _p in _p1.items():
+        if _draw < _segment_start + _p:
+            break
+        _segment_start += _p
+    # draw position inside the guessed segment, as a fraction of its width
+    _draw_in_segment = (_draw - _segment_start) / _p1[_guess]
     _jump_generator = torch.Generator().manual_seed(2 * jump_resample_button.value + 1)
     _u = torch.rand((), generator=_jump_generator).item()
     _kept = _u < _weight
@@ -192,21 +198,34 @@ def jump_example(
             f'background:{_css_rgb(name)};border:1.5px solid black"></span>'
         )
 
+    # flex layout only (no absolute positioning): the guessed segment is split into
+    # [left | 3px black draw line | right], the free space shared in proportion to the draw
+    _draw_line = (
+        f'<span style="flex:{_draw_in_segment:.4f} 1 0"></span>'
+        '<span style="flex:0 0 3px;background:black"></span>'
+        f'<span style="flex:{1 - _draw_in_segment:.4f} 1 0"></span>'
+    )
     _segments = "".join(
-        f'<span style="display:inline-block;width:{_p * 100:.0f}%;padding:0.2em 0;text-align:center;'
-        f"background:{_css_rgb(_name)};color:{'black' if _name == 'background' else 'white'};"
-        f"font-size:0.8em;outline:{'3px solid black' if _name == _guess else 'none'};"
-        f'outline-offset:-3px">{_name} {_p:.0%}</span>'
+        f'<span style="display:flex;width:{_p * 100:.0f}%;background:{_css_rgb(_name)}">'
+        f"{_draw_line if _name == _guess else ''}</span>"
+        for _name, _p in _p1.items()
+    )
+    _labels = "".join(
+        f'<span style="width:{_p * 100:.0f}%;text-align:center;white-space:nowrap">{_name} {_p:.0%}</span>'
         for _name, _p in _p1.items()
     )
     _bar = (
-        '<span style="display:inline-flex;width:18em;vertical-align:middle;'
-        f'border:1.5px solid black">{_segments}</span>'
+        '<span style="display:inline-flex;flex-direction:column;width:18em;vertical-align:middle">'
+        '<span style="display:flex;height:1.4em;border:1.5px solid black">'
+        f"{_segments}</span>"
+        f'<span style="display:flex;font-size:0.75em">{_labels}</span>'
+        "</span>"
     )
 
     _row_guess = (
         f"**1. Sample from the model prediction** &nbsp; current pixel {_pixel('background')}"
-        f" &nbsp;→&nbsp; {_bar} &nbsp;→&nbsp; guess {_pixel(_guess)} *{_guess}*"
+        f" &nbsp;→&nbsp; {_bar} &nbsp;→&nbsp; draw {_draw:.2f} lands on"
+        f" {_pixel(_guess)} *{_guess}*"
     )
     _row_jump = (
         "**2. Keep the model prediction?** &nbsp; at $t = "
