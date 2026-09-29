@@ -18,14 +18,11 @@ app = marimo.App(width="medium")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Start by running the notebook with the play button (bottom right of the page in yellow)
-    You can use the integrated gpu (cpu icon and select gpu) then save and restart to speed up training
+    - Select to use the integrated gpu (cpu icon and select gpu) then save and restart to speed up training.
+    - Before anything run the notebook with the play button (bottom right of the page in yellow)
+    - For a better experience, prefer using appview (toggle button under save button)
 
-    For a better experience, prefer using appview (toggle button under save button)
-
-    You pull the repo locally from [github](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master)
-
-    Feedback and potential PR very appreciated! 😎
+    [Github repo](https://github.com/gatienc/discrete-flow-matching-notebook/tree/master), feedback and potential PR very appreciated! 😎
     """)
     return
 
@@ -82,7 +79,7 @@ def header(
 
     This notebook was heavily inspired by Georges Le Bellier's [educational notebook](https://github.com/lebellig/discrete-fm/tree/master) on discrete flow matching.
 
-    If you don't care about the details, just scroll down and train your own model! It trains in a few seconds with 1k steps on CPU (the random coupling needs more steps for good results).
+    If you don't care about the details, just scroll down and train your own model! It trains in less than a minute with 1k steps on CPU (the random coupling needs more steps for good results).
 
     ## Dataset
     To get an understanding of discrete flow matching behaviour, we algorithmically generate a toy "dataset" of random non-overlapping items (squares/circles/triangles in red/blue/green) whose **shape and color** morph to the next ones along two independent cycles (represented here).
@@ -252,6 +249,9 @@ def train_controls(coupling_choice, kappa_choice, mo, train_steps_choice, two_cy
                 [coupling_choice, kappa_choice, train_steps_choice, two_cycle_choice],
                 justify="start",
             ),
+            mo.md(r"""
+    *With the x0 coupling, 300 training steps train in seconds and give a good model; 1000 steps give a perfect model (~40 s of training). With the random coupling, more than 1000 steps are recommended.*
+    """),
         ]
     )
     return
@@ -344,13 +344,13 @@ def wiring(
     trained_model = DiscreteFM(dict_size, copy.deepcopy(model_architecture), _coupling, _kappa).to(
         device
     )
-    _batch_size = 256
+    _batch_size = 64
     _optimizer = torch.optim.Adam(trained_model.parameters(), lr=3e-3)
 
     _losses = []
     trained_model.train()
     for _step in mo.status.progress_bar(
-        range(10 ** _settings["steps"]),
+        range(_settings["steps"]),
         title="Training",
         completion_title="Training done",
         show_rate=True,
@@ -1077,7 +1077,7 @@ def ui_controls(mo):
         value="Linear",
         label="Time interpolation κ",
     )
-    train_steps_choice = mo.ui.slider(start=1, stop=4, value=2, label="10^n training steps")
+    train_steps_choice = mo.ui.number(start=1, value=300, label="Training steps")
     two_cycle_choice = mo.ui.switch(value=False, label="2-cycle breaking case")
     return coupling_choice, kappa_choice, train_steps_choice, two_cycle_choice
 
