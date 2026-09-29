@@ -145,7 +145,8 @@ def training_explanation(mo):
 
     (with $N$ the number of pixels)
 
-    The model is **unconditional**: it only sees $x_t$ and $t$, never $x_0$. The source only matters as the starting point of the flow, which is what the coupling dropdown below changes: the source $x_0$ or random noise.
+    The model is **unconditional**: it only sees $x_t$ and $t$, never $x_0$.
+    (This is why having 3 classes cycle is important, if training with only two classes cycle, the model would be lost for t=0.5 there would be no information to know if what is the endpoint not knowing the starting point).
     """)
     return
 
@@ -239,14 +240,17 @@ def jump_example(
 
 
 @app.cell(hide_code=True)
-def train_controls(coupling_choice, kappa_choice, mo, train_steps_choice):
+def train_controls(coupling_choice, kappa_choice, mo, train_steps_choice, two_cycle_choice):
     mo.vstack(
         [
             mo.md(r"""
     ## Train your own model
     Pick a coupling, a scheduler and a number of training steps, then click Train.
     """),
-            mo.hstack([coupling_choice, kappa_choice, train_steps_choice], justify="start"),
+            mo.hstack(
+                [coupling_choice, kappa_choice, train_steps_choice, two_cycle_choice],
+                justify="start",
+            ),
         ]
     )
     return
@@ -351,7 +355,7 @@ def wiring(
         show_rate=True,
         show_eta=True,
     ):
-        _x0, _x1 = sample_pair(_batch_size)
+        _x0, _x1 = sample_pair(_batch_size, n_cycle=_settings["n_cycle"])
         _loss = trained_model.step((_x0.to(device), _x1.to(device)))
         _optimizer.zero_grad()
         _loss.backward()
@@ -370,26 +374,37 @@ def wiring(
         f"{selected_coupling_name} | {selected_kappa_name} | device={device} | "
         f"loss: {_losses[0]:.4f} → {_losses[-1]:.6f}"
     )
-    return selected_coupling_name, selected_kappa_name, trained_model
+    trained_n_cycle = _settings["n_cycle"]
+    return selected_coupling_name, selected_kappa_name, trained_model, trained_n_cycle
 
 
 @app.cell(hide_code=True)
 def sampling(
+    device,
     dict_size,
     discrete_euler_sample,
     inference_step,
+    randomize_button,
+    sample_pair,
     selected_coupling_name,
     selected_kappa_name,
     trained_model,
+    trained_n_cycle,
     x0_preview,
     x1_preview,
     x2prob,
 ):
     sample_steps = inference_step.value
-    shown_target = x1_preview
+    if trained_n_cycle == 3:
+        _shown_source, shown_target = x0_preview, x1_preview
+    else:
+        # the example pair above is 3-cycle: draw one from the 2-cycle dataset instead
+        _randomize_clicks = randomize_button.value
+        _x0, _x1 = sample_pair(1, n_cycle=trained_n_cycle)
+        _shown_source, shown_target = _x0.to(device), _x1.to(device)
 
     # the flow start must match the training coupling
-    sample_start, _ = trained_model.coupling.sample(x0_preview, shown_target)
+    sample_start, _ = trained_model.coupling.sample(_shown_source, shown_target)
     _initial_state = x2prob(sample_start, dict_size).float()
 
     sample_trajectory, sample_times = [], []
@@ -881,12 +896,17 @@ def setup_utilities():
         return ((s0 >= 0) & (s1 >= 0) & (s2 >= 0)) | ((s0 <= 0) & (s1 <= 0) & (s2 <= 0))
 
     def sample_pair(
-        batch_size: int, max_items: int = 5, size: int = SIZE, radius: int = RADIUS
+        batch_size: int,
+        max_items: int = 5,
+        size: int = SIZE,
+        radius: int = RADIUS,
+        n_cycle: int = 3,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Sample (x0, x1): random non-overlapping items, both rules applied in x1.
 
         Each item keeps its center but its shape is re-drawn morphed
         (square→circle→triangle) and its color attribute cycled (red→blue→green).
+        ``n_cycle=2`` keeps only the first two of each (square↔circle, red↔blue).
         """
         x0 = torch.zeros(batch_size, size, size, dtype=torch.long)
         x1 = torch.zeros_like(x0)
@@ -903,10 +923,10 @@ def setup_utilities():
                         break
                 else:
                     continue  # could not place without overlap; skip this item
-                shape = int(torch.randint(0, 3, (1,)).item())
-                color = int(torch.randint(0, 3, (1,)).item())
+                shape = int(torch.randint(0, n_cycle, (1,)).item())
+                color = int(torch.randint(0, n_cycle, (1,)).item())
                 x0[b][_shape_mask(shape, cx, cy, radius)] = 1 + color
-                new_shape, new_color = (shape + 1) % 3, (color + 1) % 3
+                new_shape, new_color = (shape + 1) % n_cycle, (color + 1) % n_cycle
                 x1[b][_shape_mask(new_shape, cx, cy, radius)] = 1 + new_color
         return x0, x1
 
@@ -1038,7 +1058,8 @@ def ui_controls(mo):
         label="Time interpolation κ",
     )
     train_steps_choice = mo.ui.slider(start=1, stop=4, value=2, label="10^n training steps")
-    return coupling_choice, kappa_choice, train_steps_choice
+    two_cycle_choice = mo.ui.switch(value=False, label="2-cycle breaking case")
+    return coupling_choice, kappa_choice, train_steps_choice, two_cycle_choice
 
 
 @app.cell(hide_code=True)
@@ -1060,6 +1081,7 @@ def train_button(
     kappa_choice,
     mo,
     train_steps_choice,
+    two_cycle_choice,
 ):
     def _snapshot_on_click(_value):
         """Associate the click with the current control values, so training only
@@ -1070,6 +1092,7 @@ def train_button(
             "a": a_choice.value,
             "b": b_choice.value,
             "steps": train_steps_choice.value,
+            "n_cycle": 2 if two_cycle_choice.value else 3,
         }
 
     train_button = mo.ui.button(
